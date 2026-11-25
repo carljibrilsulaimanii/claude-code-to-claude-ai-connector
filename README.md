@@ -72,6 +72,7 @@ SQLite full-text index, and `search_chats` searches that index.
 - [Step 5: Test it](#step-5-test-it)
 - [Step 6: Restart and use it](#step-6-restart-and-use-it)
 - [Step 7 (optional): Install the skill](#step-7-optional-install-the-skill)
+- [Step 8 (optional): Add a second claude.ai login](#step-8-optional-add-a-second-claudeai-login)
 - [Tools](#tools)
 - [Refreshing an expired cookie](#refreshing-an-expired-cookie)
 - [Troubleshooting](#troubleshooting)
@@ -118,8 +119,12 @@ You can do the whole setup by hand without the skill.
 
 About 2 minutes.
 
-**1a.** In Chrome, open the Chrome Web Store and search for **Get cookies.txt LOCALLY**.
+**1a.** In Chrome, open **Get cookies.txt LOCALLY** in the Chrome Web Store:
+https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc
 Click **Add to Chrome**.
+
+Extensions are per Chrome profile. Install it in the profile that's signed in to
+claude.ai.
 
 > ⚠️ **Don't install the older extension named just "Get cookies.txt".** Google removed
 > it from the store for sending people's cookies to an outside server. The "LOCALLY" one
@@ -263,9 +268,24 @@ are downloaded.
 |---|---|---|
 | `No sessionKey` | No cookies file in BRIDGE, or `.env` still says `PASTE_HERE` | Redo [Step 4](#step-4-export-your-claudeai-cookies) |
 | `claude.ai refused the request (401)` or `(403)` | Cookie expired, or you signed out | Export a fresh cookies file |
-| `chats: 0` | It picked an org without chats (e.g. an API-only org) | Set `CLAUDE_ORG_ID` in `.env` to the org shown with `chat` |
+| `chats: 0`, or only a few chats on a Team login | It picked the wrong org (see 5c) | Set `CLAUDE_ORG_ID` (5c) |
 
-✅ **Check:** the last line is `PASS`.
+**5c. Check it's reading the right org.** With no `CLAUDE_ORG_ID`, the server uses the
+**first** org that has chats. On a Team or Enterprise login that's often your near-empty
+individual org, not the team's. The test prints every org (`ORG ... | in use: True/False`);
+Team orgs list `raven` among their capabilities. If the org in use isn't where your chats
+are:
+
+1. Get the right org's uuid: in a new Claude Code session, ask Claude to run the
+   `list_orgs` tool. It prints each org's name, uuid and capabilities.
+2. Copy [`.env.example`](.env.example) to `BRIDGE/.env` (if you haven't) and set
+   `CLAUDE_ORG_ID=<uuid>`. Leave `CLAUDE_SESSION_KEY=PASTE_HERE` if you use the cookies
+   file.
+3. Delete `BRIDGE/cache.sqlite`. It still holds the other org's chats.
+4. Rerun 5b with `--sync`.
+
+✅ **Check:** the last line is `PASS`, the org marked `in use: True` is the one you want,
+and the chat count matches what you see on claude.ai.
 
 ## Step 6: Restart and use it
 
@@ -287,6 +307,57 @@ Copy-Item -Recurse claude-code-to-claude-ai-connector\claude-ai-connector $HOME\
 
 With the skill installed, Claude can run Steps 2, 3 and 5 for you, rebuild the bridge on a
 new computer, and diagnose 401s or missing tools. You still do Steps 1 and 4.
+
+## Step 8 (optional): Add a second claude.ai login
+
+**Skip this unless you sign in to claude.ai with more than one account**, e.g. a work
+login next to a personal one. One server reads one login. Each extra login gets its own
+server, folder and name. About 10 minutes.
+
+**8a.** Make a second folder, e.g. `$HOME\claude-ai-bridge-work`, and copy
+[`claude-ai-connector/scripts/server.py`](claude-ai-connector/scripts/server.py) into it as
+in [Step 2](#step-2-build-the-server).
+
+**8b.** Rename the server inside the copy. Open `server.py` in the new folder and change
+this line:
+
+```python
+mcp = MCPServer("claude-ai")
+```
+
+to:
+
+```python
+mcp = MCPServer("claude-ai-work")
+```
+
+**8c.** Give the folder its own virtual environment (Step 2b, with the new path). Don't
+point it at the first bridge's `.venv`; deleting one folder would break the other.
+
+**8d.** Register it **with a name**, the second argument to
+[`register.py`](claude-ai-connector/scripts/register.py):
+
+```powershell
+& $HOME\claude-ai-bridge-work\.venv\Scripts\python.exe claude-code-to-claude-ai-connector\claude-ai-connector\scripts\register.py $HOME\claude-ai-bridge-work claude-ai-work
+```
+
+> ⚠️ **Leave off the name and you overwrite your first server.** Without it, `register.py`
+> writes the entry `claude-ai`, which now points at the new folder. Fix it by rerunning
+> Step 3 for the first folder, then 8d with the name.
+
+**8e.** Export the second account's cookies ([Step 4](#step-4-export-your-claudeai-cookies))
+into the new folder. Use a **separate Chrome profile** signed in to that account, with the
+extension installed there too.
+
+> ⚠️ **Don't switch accounts in one profile.** Signing out of claude.ai to sign in as the
+> other account cancels the first account's cookie, and the first server stops working.
+
+**8f.** Test the new folder ([Step 5](#step-5-test-it), including 5c; work logins are the
+usual case where the team org isn't first), then open a new session.
+
+✅ **Check:** `~/.claude.json` has both `claude-ai` and `claude-ai-work` under
+`mcpServers`, each pointing at its own folder, and a new session lists tools for both
+(ToolSearch `+claude-ai`).
 
 ## Tools
 
@@ -320,12 +391,15 @@ The newest file wins, so you can delete the old one.
 | An endpoint returns 404 | claude.ai changed its private API | Probe with `api_get`, then update `server.py` |
 | `get_memory` returns `No memory endpoint answered` | Memory moved, or is off for the account | Check memory is on in claude.ai settings; probe with `api_get` |
 | `No module named 'mcp.server.fastmcp'` | `mcp` 2.x | See [Step 2](#step-2-build-the-server) |
+| Only a few chats on a Team login | It's reading your individual org | [Step 5c](#step-5-test-it) |
+| Your first server now shows the second account's chats | `register.py` ran without a name for the second login | Rerun [Step 3](#step-3-register-it-with-claude-code), then [8d](#step-8-optional-add-a-second-claudeai-login) with a name |
 
 ## Limits
 
 - **Read-only.** No tool creates, edits or deletes anything on claude.ai.
-- **One org at a time.** By default it uses the first org with the `chat` capability; set
-  `CLAUDE_ORG_ID` to choose.
+- **One login and one org per server.** By default it uses the first org with the `chat`
+  capability; set `CLAUDE_ORG_ID` to choose ([Step 5c](#step-5-test-it)). A second login
+  needs a second server ([Step 8](#step-8-optional-add-a-second-claudeai-login)).
 - **Search covers synced chats only.** Run `sync_chats` first. Chats deleted on claude.ai
   stay in the local index until you delete `cache.sqlite`.
 - **Unofficial endpoints** (`/api/organizations`, `.../chat_conversations`, `.../projects`,

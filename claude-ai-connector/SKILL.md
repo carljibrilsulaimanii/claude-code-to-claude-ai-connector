@@ -1,6 +1,6 @@
 ---
 name: claude-ai-connector
-description: Set up, repair or refresh the Claude Code to claude.ai connector, a local MCP server ("claude-ai") that reads the user's claude.ai chats, projects and memory through claude.ai's private web API using cookies exported by the "Get cookies.txt LOCALLY" Chrome extension. Use whenever the user wants Claude Code to see claude.ai chats, projects or memory, asks to connect Claude Code to claude.ai, says the claude-ai tools are missing or return 401/403, says the cookie expired, or wants this set up on a new computer. Not for the official claude.ai connectors (Drive, Gmail, etc.) or the Anthropic API.
+description: Set up, repair or refresh the Claude Code to claude.ai connector, a local MCP server ("claude-ai") that reads the user's claude.ai chats, projects and memory through claude.ai's private web API using cookies exported by the "Get cookies.txt LOCALLY" Chrome extension. Use whenever the user wants Claude Code to see claude.ai chats, projects or memory, asks to connect Claude Code to claude.ai, says the claude-ai tools are missing or return 401/403, says the cookie expired, wants this set up on a new computer, or signs in with a second claude.ai account and wants a server for it too. Not for the official claude.ai connectors (Drive, Gmail, etc.) or the Anthropic API.
 ---
 
 # Claude Code to claude.ai connector
@@ -27,9 +27,14 @@ exports it; the server reads the file. When testing, print only counts and
 ## Step 1. Chrome extension (the user does this)
 
 1. In Chrome, install **Get cookies.txt LOCALLY** from the Chrome Web Store
-   (open source, exports locally). **Don't** install the old extension named plain
-   "Get cookies.txt": Google removed it as malware for uploading cookies.
+   (open source, exports locally). **Always give the user this full link**, not just
+   the name:
+   https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc
+   **Don't** install the old extension named plain "Get cookies.txt": Google removed it
+   as malware for uploading cookies.
 2. Pin it: puzzle-piece icon → pin.
+3. Extensions are per Chrome profile. Install it in the profile that's signed in to the
+   claude.ai account being connected.
 
 ## Step 2. Build the server (Claude does this)
 
@@ -90,6 +95,52 @@ must open a new session (or fully quit and reopen the desktop app). Check with
 ToolSearch `+claude-ai`. A session started before then can still call the
 server directly through its Python functions.
 
+## Step 7. Check the org (Claude does this)
+
+With no `CLAUDE_ORG_ID`, the server uses the **first** org with the `chat` capability.
+On a Team or Enterprise login that's often the user's near-empty individual org, not
+the team. Count chats per org before calling setup done:
+
+```python
+# for each org from list_orgs(): set srv._org = uuid, then
+# len(api_get("/api/organizations/{org}/chat_conversations?limit=1000"))
+```
+
+Team orgs show the `raven` capability. If another org has the real history, put
+`CLAUDE_ORG_ID=<uuid>` in BRIDGE/.env, **delete BRIDGE/cache.sqlite** (it holds the
+other org's chats), and rerun the test with `--sync`. One server reads one org.
+
+## Optional: a second claude.ai login
+
+**Skip this unless the user signs in to claude.ai with more than one account** (e.g. a
+work login next to a personal one). Most people have one login and need one server.
+Don't offer it during a normal setup.
+
+One bridge = one login. For each extra login, build a separate server. Never reuse the
+first folder.
+
+1. **New folder**, named for the account: `BRIDGE2`. Same rules: not a synced folder.
+2. **Copy server.py and rename the server inside it:**
+   `sed -i 's/^mcp = MCPServer("claude-ai")/mcp = MCPServer("claude-ai-<name>")/' BRIDGE2/server.py`
+   Then grep to confirm the line changed.
+3. **Own venv** in BRIDGE2 (Step 2). Don't point it at the first bridge's venv; deleting
+   one folder would break the other.
+4. **Register with a name:** `register.py BRIDGE2 claude-ai-<name>`.
+   ⚠️ Without the second argument, register.py writes `claude-ai` and **overwrites the
+   first server's entry** (fix: rerun
+   `register.py BRIDGE claude-ai`). After registering, print both entries' `args` from
+   `~/.claude.json` and confirm each points at its own folder.
+5. **The user exports cookies from a Chrome profile signed in to the second account**
+   (Step 4), saved into BRIDGE2. Tell them to use a **separate Chrome profile**: signing
+   out of claude.ai in the shared profile to switch accounts invalidates the first
+   bridge's cookie. Give the extension link again; it's per profile.
+6. Before testing, confirm the file landed and has a sessionKey, without printing it:
+   `grep -q $'\tsessionKey\t' "$(ls -t BRIDGE2/*cookies*.txt | head -1)" && echo yes`.
+7. Test (Step 5 with `--sync`), then do Step 7 (check the org). A work login is the
+   case where the team org usually isn't first.
+
+Tools appear as `mcp__claude-ai-<name>__*` in sessions started after registration.
+
 ## Tools it provides
 
 | Tool | Does |
@@ -113,7 +164,8 @@ To find a past chat: `sync_chats` → `search_chats` with several word groups �
 | "No sessionKey" | No `*cookies*.txt` in BRIDGE with a claude.ai sessionKey, and `.env` still says PASTE_HERE. Check the file's save time with `ls -la`; the user may have saved it elsewhere or exported the wrong site. |
 | 401 / 403 | Cookie expired or signed out. The user exports a fresh cookies.txt into BRIDGE (newest wins). No restart needed if the server hasn't loaded a session yet; otherwise restart the session. |
 | Tools missing in Claude Code | The session started before registration: open a new one. Confirm `~/.claude.json` has `mcpServers.claude-ai` and that the paths exist. |
-| Wrong org (no chats) | Set `CLAUDE_ORG_ID` in `.env`; get the uuid from `list_orgs`. |
+| Wrong org (no chats, or only a few on a Team login) | Step 7: set `CLAUDE_ORG_ID` in `.env`, delete `cache.sqlite`, resync. |
+| Second server's tools missing, or the first server now shows the second account | register.py ran without a name and overwrote `claude-ai`. Rerun it for each folder with its own name. |
 | An endpoint 404s | claude.ai changed its private API. Probe with `api_get` (e.g. `/api/organizations/{org}/...`), then fix server.py. |
 | `No module named mcp.server.fastmcp` | mcp 2.x: use `from mcp.server.mcpserver import MCPServer`. |
 
