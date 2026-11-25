@@ -1,0 +1,7 @@
+# These hold your claude.ai login or your chat data. Never commit them.
+*cookies*.txt
+.env
+cache.sqlite
+cache.sqlite-*
+.venv/
+__pycache__/
