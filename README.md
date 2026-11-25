@@ -75,6 +75,7 @@ SQLite full-text index, and `search_chats` searches that index.
 - [Step 8 (optional): Add a second claude.ai login](#step-8-optional-add-a-second-claudeai-login)
 - [Tools](#tools)
 - [Refreshing an expired cookie](#refreshing-an-expired-cookie)
+- [What happens if you sign out](#what-happens-if-you-sign-out)
 - [Troubleshooting](#troubleshooting)
 - [Limits](#limits)
 - [Security](#security)
@@ -379,6 +380,37 @@ When a tool says the request was refused (401/403), export the cookies again
 ([Step 4](#step-4-export-your-claudeai-cookies)) into BRIDGE, then start a new session.
 The newest file wins, so you can delete the old one.
 
+## What happens if you sign out
+
+Signing out of claude.ai ends that login on claude.ai's side. The exported cookies file
+is a copy of that login, so it stops working too, even though it's still in BRIDGE.
+
+| | After you sign out |
+|---|---|
+| `list_chats`, `get_chat`, `sync_chats`, `list_projects`, `get_project`, `get_memory`, `api_get` | Fail with *claude.ai refused the request (401)* or *(403)* |
+| `search_chats` | **Still works** on chats already synced. It reads only the local index (`BRIDGE/cache.sqlite`), so it finds nothing newer than the last sync |
+
+**To turn it back on:**
+
+1. Sign back in to claude.ai in the same Chrome profile.
+2. Export the cookies again ([Step 4](#step-4-export-your-claudeai-cookies)) into the same
+   BRIDGE folder. The newest file wins; delete the old one.
+3. Start a new Claude Code session. The server keeps the cookie it loaded at startup, so a
+   session that's already open still uses the dead one.
+
+**What doesn't turn it off:**
+
+- Closing Chrome or shutting down the computer. That doesn't sign you out, so the cookie
+  keeps working until claude.ai expires it on its own.
+- Signing out of a different claude.ai account. With two servers
+  ([Step 8](#step-8-optional-add-a-second-claudeai-login)), each stops only when its own
+  account signs out. That's why each login gets its own Chrome profile: switching accounts
+  in one profile signs the other one out.
+
+**Signing out on purpose** is the quickest way to cut off a cookies file that was shared or
+copied by mistake. **Log out of all devices** in claude.ai's settings does it for every copy
+at once. See also [Security](#security).
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -387,6 +419,7 @@ The newest file wins, so you can delete the old one.
 | Tools missing in a **new** session | Wrong paths in `~/.claude.json` | Rerun [Step 3](#step-3-register-it-with-claude-code); check that the venv Python and `server.py` exist |
 | `No sessionKey` | Cookie file missing or misnamed, or `.env` unsaved | [Step 4](#step-4-export-your-claudeai-cookies) |
 | 401 / 403 | Cookie expired or signed out | [Refreshing an expired cookie](#refreshing-an-expired-cookie) |
+| 401 / 403 right after you signed out, but search still finds old chats | Sign-out ended the login; search reads the local index | [What happens if you sign out](#what-happens-if-you-sign-out) |
 | 403 with a Cloudflare page while the cookie is fresh | The request didn't look like a browser | Keep `curl_cffi` with `impersonate="chrome"`; update `curl_cffi` |
 | An endpoint returns 404 | claude.ai changed its private API | Probe with `api_get`, then update `server.py` |
 | `get_memory` returns `No memory endpoint answered` | Memory moved, or is off for the account | Check memory is on in claude.ai settings; probe with `api_get` |
